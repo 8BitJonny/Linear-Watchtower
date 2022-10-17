@@ -18,6 +18,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@octokit/types": "^8.0.0",
     "neverthrow": "^5.0.1",
     "probot": "^12.2.4"
   },
