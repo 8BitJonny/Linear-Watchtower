@@ -58,27 +58,9 @@ async function updatePr(_app: Probot, context: Context<typeof webhooks[number]>)
     );
   }
 
-  const allOrgPullRequest = await context.octokit.repos.listForOrg({
-    org: context.payload.repository.full_name.split("/")[0]
-  }).then((orgReposResponse): Promise<Endpoints["GET /repos/{owner}/{repo}/pulls"]["response"][]> => {
-    return Promise.all(orgReposResponse.data.map((repo): Promise<Endpoints["GET /repos/{owner}/{repo}/pulls"]["response"]> => {
-      return context.octokit.pulls.list({
-        owner: repo.owner.login,
-        repo: repo.name,
-      })
-    }))
-  }).then((orgRepos): { org: string, repo: string, pr: number, body: string }[][] => {
-    return orgRepos.map((repoPullRequests): { org: string, repo: string, pr: number, body: string }[] => {
-      return repoPullRequests.data.map((pullRequest): { org: string, repo: string, pr: number, body: string } => {
-        return {
-          org: pullRequest.base.repo.full_name.split("/")[0],
-          repo: pullRequest.base.repo.full_name.split("/")[1],
-          pr: pullRequest.number,
-          body: pullRequest.body || "",
-        }
-      })
-    })
-  })
+  const allOrgPullRequest = await listReposForOrg(context)
+    .then(listPullsForAllRepos(context))
+    .then(extractPullRequestInfo)
 
   const prIssuesMap: Map<String, Set<{ org: string, repo: string, pr: number, body: string }>> = new Map
   allOrgPullRequest.forEach(repos => {
@@ -141,3 +123,39 @@ async function updatePr(_app: Probot, context: Context<typeof webhooks[number]>)
 export = (app: Probot) => {
   app.on(webhooks, updatePr.bind(null, app));
 };
+
+function listReposForOrg(context: Context<typeof webhooks[number]>): Promise<Endpoints["GET /orgs/{org}/repos"]["response"]> {
+  return context.octokit.repos.listForOrg({
+    org: context.payload.repository.full_name.split("/")[0]
+  })
+}
+
+function listPullsForAllRepos(context: Context<typeof webhooks[number]>) {
+  return (orgReposResponse: Endpoints["GET /orgs/{org}/repos"]["response"]): Promise<Endpoints["GET /repos/{owner}/{repo}/pulls"]["response"][]> => {
+    return Promise.all(orgReposResponse.data.map((repo): Promise<Endpoints["GET /repos/{owner}/{repo}/pulls"]["response"]> => {
+      return listPullsForRepo(context, repo)
+    }))
+  }
+}
+
+async function listPullsForRepo(context: Context<typeof webhooks[number]>, repo: Endpoints["GET /orgs/{org}/repos"]["response"]["data"][0]): Promise<Endpoints["GET /repos/{owner}/{repo}/pulls"]["response"]> {
+  return context.octokit.pulls.list({
+    owner: repo.owner.login,
+    repo: repo.name,
+    per_page: 50,
+    state: "all"
+  })
+}
+
+function extractPullRequestInfo(orgRepos: Endpoints["GET /repos/{owner}/{repo}/pulls"]["response"][]): { org: string, repo: string, pr: number, body: string }[][] {
+  return orgRepos.map((repoPullRequests): { org: string, repo: string, pr: number, body: string }[] => {
+    return repoPullRequests.data.map((pullRequest): { org: string, repo: string, pr: number, body: string } => {
+      return {
+        org: pullRequest.base.repo.full_name.split("/")[0],
+        repo: pullRequest.base.repo.full_name.split("/")[1],
+        pr: pullRequest.number,
+        body: pullRequest.body || "",
+      }
+    })
+  })
+}
